@@ -88,13 +88,21 @@ if (!window.supabase) {
   throw new Error("Supabase JS no se cargó desde el CDN");
 }
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 window.addEventListener("error", (e) => {
   const body = document.getElementById("tablaBody");
   if (body) {
     body.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-red-500">Error inesperado: ${escapeHtml(e.message)}</td></tr>`;
   }
+});
+window.addEventListener("unhandledrejection", (e) => {
+  const body = document.getElementById("tablaBody");
+  if (body) {
+    const msg = (e.reason && e.reason.message) ? e.reason.message : String(e.reason);
+    body.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-red-500">Error de conexión: ${escapeHtml(msg)}</td></tr>`;
+  }
+  document.getElementById("contador").textContent = "Error al cargar";
 });
 
 const PAGE_SIZE = 30;
@@ -116,7 +124,7 @@ function escapeHtml(s) {
 }
 
 async function cargarCategorias() {
-  const { data, error } = await supabase.from("productos_global").select("categoria");
+  const { data, error } = await supabaseClient.from("productos_global").select("categoria");
   if (error) { mostrarError(error); return; }
   const unicas = [...new Set(data.map(d => d.categoria))].sort();
   const sel = document.getElementById("filtroCategoria");
@@ -129,7 +137,7 @@ async function cargarCategorias() {
 }
 
 async function cargarMarcas() {
-  let q = supabase.from("productos_global").select("marca").not("marca", "is", null);
+  let q = supabaseClient.from("productos_global").select("marca").not("marca", "is", null);
   if (categoriaSel !== "todas") q = q.eq("categoria", categoriaSel);
   const { data, error } = await q;
   if (error) { mostrarError(error); return; }
@@ -154,7 +162,7 @@ async function cargarProductos() {
   document.getElementById("tablaBody").innerHTML =
     '<tr><td colspan="8" class="p-6 text-center text-gray-400">Cargando...</td></tr>';
 
-  let q = supabase.from("productos_global").select("*", { count: "exact" });
+  let q = supabaseClient.from("productos_global").select("*", { count: "exact" });
   if (categoriaSel !== "todas") q = q.eq("categoria", categoriaSel);
   if (marcaSel !== "todas") q = q.eq("marca", marcaSel);
   if (busqueda.trim()) {
@@ -285,9 +293,20 @@ function actualizarBotonLimpiar() {
 
 // Inicio
 (async function init() {
-  await cargarCategorias();
-  await cargarMarcas();
-  await cargarProductos();
+  try {
+    const timeout = setTimeout(() => {
+      document.getElementById("tablaBody").innerHTML =
+        '<tr><td colspan="8" class="p-6 text-center text-red-500">La consulta a Supabase está tardando demasiado o no responde. Revisa la URL/llave de Supabase y que la tabla productos_global exista.</td></tr>';
+    }, 8000);
+
+    await cargarCategorias();
+    await cargarMarcas();
+    await cargarProductos();
+    clearTimeout(timeout);
+  } catch (err) {
+    document.getElementById("tablaBody").innerHTML =
+      `<tr><td colspan="8" class="p-6 text-center text-red-500">Error al iniciar: ${escapeHtml(err.message || String(err))}</td></tr>`;
+  }
 })();
 </script>
 </body>
