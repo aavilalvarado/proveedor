@@ -5,279 +5,278 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Catálogo de Proveedor Global</title>
 
-<!-- Tailwind (CDN, sin necesidad de instalar nada) -->
 <script src="https://cdn.tailwindcss.com"></script>
-
-<!-- React + Babel (para poder escribir JSX directo en este archivo) -->
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-<!-- Cliente de Supabase -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body class="bg-gray-50">
 
-<div id="root"></div>
+<div class="max-w-6xl mx-auto p-4">
+  <h1 class="text-xl font-semibold text-gray-900 mb-4">Catálogo de Proveedor Global</h1>
 
-<script type="text/babel" data-presets="react">
+  <div class="bg-white rounded-2xl border border-gray-100 p-3 mb-3 flex items-center justify-between flex-wrap gap-2">
+    <div>
+      <span class="font-medium text-sm text-gray-900">Productos</span>
+      <p id="contador" class="text-xs text-gray-400 mt-0.5">Cargando...</p>
+    </div>
+    <input id="busqueda" placeholder="Buscar por modelo, marca o título..."
+      class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full sm:w-80">
+  </div>
 
+  <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+    <div class="flex gap-2 flex-wrap">
+      <select id="filtroCategoria" class="px-3 py-1.5 rounded-full text-xs border font-medium bg-white text-gray-600 border-gray-200">
+        <option value="todas">Todas las categorías</option>
+      </select>
+      <select id="filtroMarca" class="px-3 py-1.5 rounded-full text-xs border font-medium bg-white text-gray-600 border-gray-200">
+        <option value="todas">Todas las marcas</option>
+      </select>
+      <button id="btnLimpiar" class="px-3 py-1.5 rounded-full text-xs border font-medium bg-white text-red-500 border-red-200 hidden">
+        Limpiar filtros
+      </button>
+    </div>
+    <span id="paginaTexto" class="text-xs text-gray-400"></span>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="bg-gray-50 border-b border-gray-100">
+            <th class="text-left p-2 text-gray-400 font-medium">Categoría</th>
+            <th class="text-left p-2 text-gray-400 font-medium">Modelo</th>
+            <th class="text-left p-2 text-gray-400 font-medium">Marca</th>
+            <th class="text-left p-2 text-gray-400 font-medium min-w-[260px]">Título</th>
+            <th class="text-center p-2 text-gray-400 font-medium">Existencia</th>
+            <th class="text-right p-2 text-purple-600 font-medium bg-purple-50">Precio Lista</th>
+            <th class="text-right p-2 text-purple-600 font-medium bg-purple-50">Su Precio</th>
+            <th class="text-center p-2 text-gray-400 font-medium">Ficha</th>
+          </tr>
+        </thead>
+        <tbody id="tablaBody">
+          <tr><td colspan="8" class="p-6 text-center text-gray-400">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="flex items-center justify-between p-3 border-t border-gray-100">
+      <button id="btnAnterior" class="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40">← Anterior</button>
+      <span id="paginaTexto2" class="text-xs text-gray-400"></span>
+      <button id="btnSiguiente" class="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40">Siguiente →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de detalle -->
+<div id="modal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 hidden">
+  <div class="bg-white rounded-2xl w-full max-w-lg shadow-xl">
+    <div class="flex items-center justify-between p-4 border-b border-gray-100">
+      <h3 id="modalTitulo" class="font-semibold text-gray-900"></h3>
+      <button id="btnCerrarModal" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+    </div>
+    <div id="modalContenido" class="p-4 space-y-2 text-sm"></div>
+  </div>
+</div>
+
+<script>
 // =====================================================================
-// 1) CONFIGURA AQUÍ TU PROYECTO DE SUPABASE
-//    - SUPABASE_URL: tu Project URL (Project Settings -> API)
-//    - SUPABASE_ANON_KEY: la llave PÚBLICA (sb_publishable_... o "anon"),
-//      NUNCA la llave sb_secret_/service_role aquí, esta se ve en el navegador.
+// CONFIGURACIÓN DE SUPABASE
 // =====================================================================
 const SUPABASE_URL = "https://vhjdftnzccoykhundxfn.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_aqenc-HbuSg21fFt48EfTg_-gnnKXjy";
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const { useState, useEffect } = React;
 const PAGE_SIZE = 30;
+let pagina = 1;
+let totalFilas = 0;
+let categoriaSel = "todas";
+let marcaSel = "todas";
+let busqueda = "";
+let debounceTimer = null;
 
 function formatoMoneda(v) {
   if (v === null || v === undefined) return "—";
   return Number(v).toLocaleString("es-MX", { style: "currency", currency: "USD" });
 }
 
-function CatalogoGlobalView() {
-  const [productos, setProductos] = useState([]);
-  const [categorias, setCategorias] = useState([]);
-  const [marcas, setMarcas] = useState([]);
-  const [busqueda, setBusqueda] = useState("");
-  const [categoriaSel, setCategoriaSel] = useState("todas");
-  const [marcaSel, setMarcaSel] = useState("todas");
-  const [pagina, setPagina] = useState(1);
-  const [totalFilas, setTotalFilas] = useState(0);
-  const [cargando, setCargando] = useState(true);
-  const [detalle, setDetalle] = useState(null);
-  const [errorConfig, setErrorConfig] = useState(false);
-
-  useEffect(() => {
-    if (SUPABASE_URL.includes("PEGA_AQUI") || SUPABASE_ANON_KEY.includes("PEGA_AQUI")) {
-      setErrorConfig(true);
-      setCargando(false);
-      return;
-    }
-    supabase.from("productos_global").select("categoria").then(({ data }) => {
-      const unicas = [...new Set((data || []).map(d => d.categoria))].sort();
-      setCategorias(unicas);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (errorConfig) return;
-    let q = supabase.from("productos_global").select("marca").not("marca", "is", null);
-    if (categoriaSel !== "todas") q = q.eq("categoria", categoriaSel);
-    q.then(({ data }) => {
-      const unicas = [...new Set((data || []).map(d => d.marca).filter(Boolean))].sort();
-      setMarcas(unicas);
-    });
-  }, [categoriaSel, errorConfig]);
-
-  useEffect(() => {
-    if (errorConfig) return;
-    const t = setTimeout(() => cargarProductos(), 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line
-  }, [busqueda, categoriaSel, marcaSel, pagina, errorConfig]);
-
-  async function cargarProductos() {
-    setCargando(true);
-    let q = supabase.from("productos_global").select("*", { count: "exact" });
-
-    if (categoriaSel !== "todas") q = q.eq("categoria", categoriaSel);
-    if (marcaSel !== "todas") q = q.eq("marca", marcaSel);
-    if (busqueda.trim()) {
-      q = q.or(`titulo.ilike.%${busqueda}%,modelo.ilike.%${busqueda}%,marca.ilike.%${busqueda}%`);
-    }
-
-    const desde = (pagina - 1) * PAGE_SIZE;
-    const hasta = desde + PAGE_SIZE - 1;
-    const { data, count } = await q.order("categoria", { ascending: true }).range(desde, hasta);
-
-    setProductos(data || []);
-    setTotalFilas(count || 0);
-    setCargando(false);
-  }
-
-  if (errorConfig) {
-    return (
-      <div className="max-w-lg mx-auto mt-24 bg-white border border-red-200 rounded-2xl p-6 text-center">
-        <p className="text-red-600 font-semibold mb-2">Falta configurar la conexión</p>
-        <p className="text-sm text-gray-500">
-          Abre este archivo con un editor de texto y reemplaza <code>PEGA_AQUI_TU_SUPABASE_URL</code> y
-          <code> PEGA_AQUI_TU_LLAVE_PUBLICA</code> con los datos de tu proyecto de Supabase
-          (Project Settings → API).
-        </p>
-      </div>
-    );
-  }
-
-  const totalPaginas = Math.max(1, Math.ceil(totalFilas / PAGE_SIZE));
-
-  function limpiarFiltros() {
-    setBusqueda("");
-    setCategoriaSel("todas");
-    setMarcaSel("todas");
-    setPagina(1);
-  }
-
-  return (
-    <div className="max-w-6xl mx-auto p-4">
-      <h1 className="text-xl font-semibold text-gray-900 mb-4">Catálogo de Proveedor Global</h1>
-
-      <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-3 flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <span className="font-medium text-sm text-gray-900">Productos</span>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {totalFilas.toLocaleString("es-MX")} productos encontrados
-          </p>
-        </div>
-        <input
-          value={busqueda}
-          onChange={e => { setBusqueda(e.target.value); setPagina(1); }}
-          placeholder="Buscar por modelo, marca o título..."
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full sm:w-80"
-        />
-      </div>
-
-      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <div className="flex gap-2 flex-wrap">
-          <select
-            value={categoriaSel}
-            onChange={e => { setCategoriaSel(e.target.value); setMarcaSel("todas"); setPagina(1); }}
-            className="px-3 py-1.5 rounded-full text-xs border font-medium bg-white text-gray-600 border-gray-200"
-          >
-            <option value="todas">Todas las categorías</option>
-            {categorias.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-
-          <select
-            value={marcaSel}
-            onChange={e => { setMarcaSel(e.target.value); setPagina(1); }}
-            className="px-3 py-1.5 rounded-full text-xs border font-medium bg-white text-gray-600 border-gray-200"
-          >
-            <option value="todas">Todas las marcas</option>
-            {marcas.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-
-          {(busqueda || categoriaSel !== "todas" || marcaSel !== "todas") && (
-            <button
-              onClick={limpiarFiltros}
-              className="px-3 py-1.5 rounded-full text-xs border font-medium bg-white text-red-500 border-red-200"
-            >
-              Limpiar filtros
-            </button>
-          )}
-        </div>
-        <span className="text-xs text-gray-400">Página {pagina} de {totalPaginas}</span>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left p-2 text-gray-400 font-medium">Categoría</th>
-                <th className="text-left p-2 text-gray-400 font-medium">Modelo</th>
-                <th className="text-left p-2 text-gray-400 font-medium">Marca</th>
-                <th className="text-left p-2 text-gray-400 font-medium min-w-[260px]">Título</th>
-                <th className="text-center p-2 text-gray-400 font-medium">Existencia</th>
-                <th className="text-right p-2 text-purple-600 font-medium bg-purple-50">Precio Lista</th>
-                <th className="text-right p-2 text-purple-600 font-medium bg-purple-50">Su Precio</th>
-                <th className="text-center p-2 text-gray-400 font-medium">Ficha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cargando ? (
-                <tr><td colSpan="8" className="p-6 text-center text-gray-400">Cargando...</td></tr>
-              ) : productos.length === 0 ? (
-                <tr><td colSpan="8" className="p-6 text-center text-gray-400">Sin resultados para estos filtros</td></tr>
-              ) : (
-                productos.map(p => (
-                  <tr key={p.id} className="border-b border-gray-50">
-                    <td className="p-2 text-gray-500">{p.categoria}</td>
-                    <td className="p-2 font-medium text-gray-900">{p.modelo}</td>
-                    <td className="p-2 text-gray-700">{p.marca}</td>
-                    <td className="p-2 text-gray-700">{p.titulo}</td>
-                    <td className="p-2 text-center text-gray-700">{p.existencia}</td>
-                    <td className="p-2 text-right bg-purple-50 text-gray-500">{formatoMoneda(p.precio_lista_usd)}</td>
-                    <td className="p-2 text-right bg-purple-50 font-semibold text-purple-600">{formatoMoneda(p.su_precio)}</td>
-                    <td className="p-2 text-center">
-                      <button
-                        onClick={() => setDetalle(p)}
-                        className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700"
-                      >
-                        Ver
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="flex items-center justify-between p-3 border-t border-gray-100">
-          <button
-            onClick={() => setPagina(p => Math.max(1, p - 1))}
-            disabled={pagina === 1}
-            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40"
-          >
-            ← Anterior
-          </button>
-          <span className="text-xs text-gray-400">{pagina} / {totalPaginas}</span>
-          <button
-            onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))}
-            disabled={pagina >= totalPaginas}
-            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg disabled:opacity-40"
-          >
-            Siguiente →
-          </button>
-        </div>
-      </div>
-
-      {detalle && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl">
-            <div className="flex items-center justify-between p-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900">{detalle.modelo}</h3>
-              <button onClick={() => setDetalle(null)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
-            </div>
-            <div className="p-4 space-y-2 text-sm">
-              {detalle.url_imagen && (
-                <img src={detalle.url_imagen} alt={detalle.modelo} className="w-full rounded-lg border border-gray-100 mb-2" />
-              )}
-              <p><span className="text-gray-400">Marca:</span> {detalle.marca}</p>
-              <p><span className="text-gray-400">Categoría:</span> {detalle.categoria}</p>
-              <p><span className="text-gray-400">Título:</span> {detalle.titulo}</p>
-              <p><span className="text-gray-400">Existencia:</span> {detalle.existencia} &nbsp;|&nbsp; <span className="text-gray-400">En camino:</span> {detalle.en_camino}</p>
-              <p><span className="text-gray-400">Precio de lista:</span> {formatoMoneda(detalle.precio_lista_usd)}</p>
-              <p><span className="text-gray-400">Precio especial:</span> {formatoMoneda(detalle.precio_especial)}</p>
-              <p className="font-semibold text-purple-600">Su precio: {formatoMoneda(detalle.su_precio)}</p>
-              <div className="flex gap-2 pt-2">
-                {detalle.link_syscom && (
-                  <a href={detalle.link_syscom} target="_blank" rel="noreferrer" className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">
-                    Ver en SYSCOM
-                  </a>
-                )}
-                {detalle.link_privado && (
-                  <a href={detalle.link_privado} target="_blank" rel="noreferrer" className="text-xs border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-                    Ficha privada
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function escapeHtml(s) {
+  if (s === null || s === undefined) return "";
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<CatalogoGlobalView />);
+async function cargarCategorias() {
+  const { data, error } = await supabase.from("productos_global").select("categoria");
+  if (error) { mostrarError(error); return; }
+  const unicas = [...new Set(data.map(d => d.categoria))].sort();
+  const sel = document.getElementById("filtroCategoria");
+  unicas.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c;
+    opt.textContent = c;
+    sel.appendChild(opt);
+  });
+}
+
+async function cargarMarcas() {
+  let q = supabase.from("productos_global").select("marca").not("marca", "is", null);
+  if (categoriaSel !== "todas") q = q.eq("categoria", categoriaSel);
+  const { data, error } = await q;
+  if (error) { mostrarError(error); return; }
+  const unicas = [...new Set(data.map(d => d.marca).filter(Boolean))].sort();
+  const sel = document.getElementById("filtroMarca");
+  sel.innerHTML = '<option value="todas">Todas las marcas</option>';
+  unicas.forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = m;
+    sel.appendChild(opt);
+  });
+}
+
+function mostrarError(error) {
+  document.getElementById("tablaBody").innerHTML =
+    `<tr><td colspan="8" class="p-6 text-center text-red-500">Error: ${escapeHtml(error.message)}</td></tr>`;
+  document.getElementById("contador").textContent = "Error al cargar";
+}
+
+async function cargarProductos() {
+  document.getElementById("tablaBody").innerHTML =
+    '<tr><td colspan="8" class="p-6 text-center text-gray-400">Cargando...</td></tr>';
+
+  let q = supabase.from("productos_global").select("*", { count: "exact" });
+  if (categoriaSel !== "todas") q = q.eq("categoria", categoriaSel);
+  if (marcaSel !== "todas") q = q.eq("marca", marcaSel);
+  if (busqueda.trim()) {
+    q = q.or(`titulo.ilike.%${busqueda}%,modelo.ilike.%${busqueda}%,marca.ilike.%${busqueda}%`);
+  }
+
+  const desde = (pagina - 1) * PAGE_SIZE;
+  const hasta = desde + PAGE_SIZE - 1;
+  const { data, count, error } = await q.order("categoria", { ascending: true }).range(desde, hasta);
+
+  if (error) { mostrarError(error); return; }
+
+  totalFilas = count || 0;
+  renderTabla(data || []);
+  renderPaginacion();
+  document.getElementById("contador").textContent = `${totalFilas.toLocaleString("es-MX")} productos encontrados`;
+}
+
+function renderTabla(productos) {
+  const body = document.getElementById("tablaBody");
+  if (productos.length === 0) {
+    body.innerHTML = '<tr><td colspan="8" class="p-6 text-center text-gray-400">Sin resultados para estos filtros</td></tr>';
+    return;
+  }
+  body.innerHTML = productos.map(p => `
+    <tr class="border-b border-gray-50">
+      <td class="p-2 text-gray-500">${escapeHtml(p.categoria)}</td>
+      <td class="p-2 font-medium text-gray-900">${escapeHtml(p.modelo)}</td>
+      <td class="p-2 text-gray-700">${escapeHtml(p.marca)}</td>
+      <td class="p-2 text-gray-700">${escapeHtml(p.titulo)}</td>
+      <td class="p-2 text-center text-gray-700">${escapeHtml(p.existencia)}</td>
+      <td class="p-2 text-right bg-purple-50 text-gray-500">${formatoMoneda(p.precio_lista_usd)}</td>
+      <td class="p-2 text-right bg-purple-50 font-semibold text-purple-600">${formatoMoneda(p.su_precio)}</td>
+      <td class="p-2 text-center">
+        <button class="btnVer text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700" data-id="${p.id}">Ver</button>
+      </td>
+    </tr>
+  `).join("");
+
+  body.querySelectorAll(".btnVer").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const p = productos.find(x => String(x.id) === btn.dataset.id);
+      abrirModal(p);
+    });
+  });
+}
+
+function renderPaginacion() {
+  const totalPaginas = Math.max(1, Math.ceil(totalFilas / PAGE_SIZE));
+  document.getElementById("paginaTexto").textContent = `Página ${pagina} de ${totalPaginas}`;
+  document.getElementById("paginaTexto2").textContent = `${pagina} / ${totalPaginas}`;
+  document.getElementById("btnAnterior").disabled = pagina === 1;
+  document.getElementById("btnSiguiente").disabled = pagina >= totalPaginas;
+}
+
+function abrirModal(p) {
+  document.getElementById("modalTitulo").textContent = p.modelo || "";
+  document.getElementById("modalContenido").innerHTML = `
+    ${p.url_imagen ? `<img src="${escapeHtml(p.url_imagen)}" class="w-full rounded-lg border border-gray-100 mb-2">` : ""}
+    <p><span class="text-gray-400">Marca:</span> ${escapeHtml(p.marca)}</p>
+    <p><span class="text-gray-400">Categoría:</span> ${escapeHtml(p.categoria)}</p>
+    <p><span class="text-gray-400">Título:</span> ${escapeHtml(p.titulo)}</p>
+    <p><span class="text-gray-400">Existencia:</span> ${escapeHtml(p.existencia)} &nbsp;|&nbsp; <span class="text-gray-400">En camino:</span> ${escapeHtml(p.en_camino)}</p>
+    <p><span class="text-gray-400">Precio de lista:</span> ${formatoMoneda(p.precio_lista_usd)}</p>
+    <p><span class="text-gray-400">Precio especial:</span> ${formatoMoneda(p.precio_especial)}</p>
+    <p class="font-semibold text-purple-600">Su precio: ${formatoMoneda(p.su_precio)}</p>
+    <div class="flex gap-2 pt-2">
+      ${p.link_syscom ? `<a href="${escapeHtml(p.link_syscom)}" target="_blank" rel="noreferrer" class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">Ver en SYSCOM</a>` : ""}
+      ${p.link_privado ? `<a href="${escapeHtml(p.link_privado)}" target="_blank" rel="noreferrer" class="text-xs border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50">Ficha privada</a>` : ""}
+    </div>
+  `;
+  document.getElementById("modal").classList.remove("hidden");
+}
+
+document.getElementById("btnCerrarModal").addEventListener("click", () => {
+  document.getElementById("modal").classList.add("hidden");
+});
+document.getElementById("modal").addEventListener("click", (e) => {
+  if (e.target.id === "modal") document.getElementById("modal").classList.add("hidden");
+});
+
+document.getElementById("busqueda").addEventListener("input", (e) => {
+  busqueda = e.target.value;
+  pagina = 1;
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(cargarProductos, 300);
+});
+
+document.getElementById("filtroCategoria").addEventListener("change", async (e) => {
+  categoriaSel = e.target.value;
+  marcaSel = "todas";
+  pagina = 1;
+  actualizarBotonLimpiar();
+  await cargarMarcas();
+  cargarProductos();
+});
+
+document.getElementById("filtroMarca").addEventListener("change", (e) => {
+  marcaSel = e.target.value;
+  pagina = 1;
+  actualizarBotonLimpiar();
+  cargarProductos();
+});
+
+document.getElementById("btnLimpiar").addEventListener("click", async () => {
+  busqueda = "";
+  categoriaSel = "todas";
+  marcaSel = "todas";
+  pagina = 1;
+  document.getElementById("busqueda").value = "";
+  document.getElementById("filtroCategoria").value = "todas";
+  actualizarBotonLimpiar();
+  await cargarMarcas();
+  cargarProductos();
+});
+
+document.getElementById("btnAnterior").addEventListener("click", () => {
+  if (pagina > 1) { pagina--; cargarProductos(); }
+});
+document.getElementById("btnSiguiente").addEventListener("click", () => {
+  pagina++; cargarProductos();
+});
+
+function actualizarBotonLimpiar() {
+  const activo = busqueda || categoriaSel !== "todas" || marcaSel !== "todas";
+  document.getElementById("btnLimpiar").classList.toggle("hidden", !activo);
+}
+
+// Inicio
+(async function init() {
+  await cargarCategorias();
+  await cargarMarcas();
+  await cargarProductos();
+})();
 </script>
 </body>
 </html>
