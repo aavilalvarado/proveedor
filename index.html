@@ -6,7 +6,7 @@
 <title>Catálogo de Proveedor Global</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-gray-50">
 
@@ -83,7 +83,19 @@
 const SUPABASE_URL = "https://vhjdftnzccoykhundxfn.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_aqenc-HbuSg21fFt48EfTg_-gnnKXjy";
 
+if (!window.supabase) {
+  document.body.innerHTML = '<div class="max-w-lg mx-auto mt-24 bg-white border border-red-200 rounded-2xl p-6 text-center"><p class="text-red-600 font-semibold mb-2">No cargó la librería de Supabase</p><p class="text-sm text-gray-500">Revisa tu conexión a internet y vuelve a intentar recargando la página.</p></div>';
+  throw new Error("Supabase JS no se cargó desde el CDN");
+}
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+window.addEventListener("error", (e) => {
+  const body = document.getElementById("tablaBody");
+  if (body) {
+    body.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-red-500">Error inesperado: ${escapeHtml(e.message)}</td></tr>`;
+  }
+});
 
 const PAGE_SIZE = 30;
 let pagina = 1;
